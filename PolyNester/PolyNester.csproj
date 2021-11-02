@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>netstandard2.1</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ParagonClipper" Version="6.4.2" />
+    <ProjectReference Include="..\..\clipper_library\clipper_library.csproj" />
   </ItemGroup>
 
 </Project>
