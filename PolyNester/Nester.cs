@@ -722,6 +722,20 @@ namespace PolyNester
 
 	public class Nester
 	{
+		private long upscale = 1;
+
+		public long Upscale
+		{
+			get => upscale;
+			set
+			{
+				if (value <= 0) {
+					throw new InvalidOperationException("Upscale should be greate or equal to 1.");
+				}
+				upscale = value;
+			}
+		}
+
 		private class PolyRef
 		{
 			public Ngons poly;
@@ -1261,6 +1275,19 @@ namespace PolyNester
 				polygon_lib.Add(new PolyRef() { poly = fulls[i], trans = Mat3x3.Eye() });
 
 			return clust_ids;
+		}
+
+		public void AddPolygon(List<List<Vector64>> polygon, bool simplify = false)
+		{
+			var clipper_polygon = polygon.Select(part =>
+				part.Select(v =>
+					new IntPoint(v.X * upscale, v.Y * upscale)
+				).ToList()
+			).ToList();
+			if (simplify) {
+				clipper_polygon = Clipper.SimplifyPolygons(clipper_polygon, PolyFillType.pftNonZero);
+			}
+			polygon_lib.Add(new PolyRef { poly = clipper_polygon, trans = Mat3x3.Eye(), });
 		}
 
 		/// <summary>
