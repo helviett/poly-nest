@@ -736,10 +736,13 @@ namespace PolyNester
 			}
 		}
 
+		public Vector64 Container { get; set; }
+
 		private class PolyRef
 		{
 			public Ngons poly;
 			public Mat3x3 trans;
+			public bool is_placed;
 
 			public IntPoint GetTransformedPoint(int poly_id, int index)
 			{
@@ -1111,6 +1114,10 @@ namespace PolyNester
 				}
 			}
 
+			for (int i = 0; i < ordered_handles.Length; i++) {
+				polygon_lib[ordered_handles[i]].is_placed = placed[i];
+			}
+
 			// remove temporary added values
 			polygon_lib.RemoveRange(start_cnt, polygon_lib.Count - start_cnt);
 		}
@@ -1345,18 +1352,19 @@ namespace PolyNester
 		{
 			HashSet<int> unique = PreprocessHandles(handles);
 
-			long w = 0;
-			long h = 0;
+			long w = (long)(Container.X * Upscale);
+			long h = (long)(Container.Y * Upscale);
 
-			foreach (int i in unique)
-			{
-				IntRect bds = GeomUtility.GetBounds(polygon_lib[i].GetTransformedPoly()[0]);
-				w += bds.Width();
-				h += bds.Height();
+			if (w == 0 || h == 0) {
+				foreach (int i in unique) {
+					IntRect bds = GeomUtility.GetBounds(polygon_lib[i].GetTransformedPoly()[0]);
+					w += bds.Width();
+					h += bds.Height();
+				}
+
+				w += 1000;
+				h += 1000;
 			}
-
-			w += 1000;
-			h += 1000;
 
 			IntRect canvas = new IntRect(0, h, w, 0);
 
@@ -1367,6 +1375,8 @@ namespace PolyNester
 		{
 			return polygon_lib[handle].GetTransformedPoly();
 		}
+
+		public bool IsPolygonPlaced(int handle) => polygon_lib[handle].is_placed;
 
 		public void ResetTransformLib()
 		{
