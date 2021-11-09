@@ -123,7 +123,7 @@ namespace PolyNester
 
 	public struct Mat3x3
 	{
-		double x11, x12, x13, x21, x22, x23, x31, x32, x33;
+		public double x11, x12, x13, x21, x22, x23, x31, x32, x33;
 
 		public static Mat3x3 Eye()
 		{
@@ -1377,6 +1377,8 @@ namespace PolyNester
 		}
 
 		public bool IsPolygonPlaced(int handle) => polygon_lib[handle].is_placed;
+
+		public Mat3x3 GetPolygonTransform(int handle) => polygon_lib[handle].trans;
 
 		public void ResetTransformLib()
 		{
