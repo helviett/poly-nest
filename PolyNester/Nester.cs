@@ -779,6 +779,8 @@ namespace PolyNester
 
 		public int LibSize { get { return polygon_lib.Count; } }
 
+		public void RemovePlaced() => polygon_lib.RemoveAll(pr => pr.is_placed);
+
 		public Nester()
 		{
 			polygon_lib = new List<PolyRef>();
