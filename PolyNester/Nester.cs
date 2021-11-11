@@ -773,10 +773,6 @@ namespace PolyNester
 
 		private List<PolyRef> polygon_lib;  // list of saved polygons for reference by handle, stores raw poly positions and transforms
 
-		private Queue<Command> command_buffer;  // buffers list of commands which will append transforms to elements of poly_lib on execute
-
-		private BackgroundWorker background_worker;     // used to execute command buffer in background
-
 		public int LibSize { get { return polygon_lib.Count; } }
 
 		public void RemovePlaced() => polygon_lib.RemoveAll(pr => pr.is_placed);
@@ -784,68 +780,6 @@ namespace PolyNester
 		public Nester()
 		{
 			polygon_lib = new List<PolyRef>();
-			command_buffer = new Queue<Command>();
-		}
-
-		public void ExecuteCommandBuffer(Action<ProgressChangedEventArgs> callback_progress, Action<AsyncCompletedEventArgs> callback_completed)
-		{
-			background_worker = new BackgroundWorker();
-			background_worker.WorkerSupportsCancellation = true;
-			background_worker.WorkerReportsProgress = true;
-
-			if (callback_progress != null)
-				background_worker.ProgressChanged += (sender, e) => callback_progress.Invoke(e);
-			if (callback_completed != null)
-				background_worker.RunWorkerCompleted += (sender, e) => callback_completed.Invoke(e);
-
-			background_worker.DoWork += Background_worker_DoWork;
-			background_worker.RunWorkerCompleted += Background_worker_RunWorkerCompleted;
-
-			background_worker.RunWorkerAsync();
-		}
-
-		public void CancelExecute()
-		{
-			if (!IsBusy())
-				return;
-
-			background_worker.CancelAsync();
-		}
-
-		private void Background_worker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
-		{
-			if (e.Cancelled || e.Error != null)
-			{
-				ResetTransformLib();
-				command_buffer.Clear();
-			}
-
-			background_worker.Dispose();
-		}
-
-		private void Background_worker_DoWork(object sender, DoWorkEventArgs e)
-		{
-			while (command_buffer.Count > 0)
-			{
-				Command cmd = command_buffer.Dequeue();
-				cmd.Call(cmd.param);
-
-				if (background_worker.CancellationPending)
-				{
-					e.Cancel = true;
-					break;
-				}
-			}
-		}
-
-		public void ClearCommandBuffer()
-		{
-			command_buffer.Clear();
-		}
-
-		public bool IsBusy()
-		{
-			return background_worker != null && background_worker.IsBusy;
 		}
 
 		private HashSet<int> PreprocessHandles(IEnumerable<int> handles)
@@ -860,70 +794,34 @@ namespace PolyNester
 			return unique;
 		}
 
-		public void CMD_Scale(int handle, double scale_x, double scale_y)
+		public void Scale(int handle, double scale_x, double scale_y)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_scale, param = new object[] { handle, scale_x, scale_y } });
-		}
-
-		private void cmd_scale(params object[] param)
-		{
-			int handle = (int)param[0];
-			double scale_x = (double)param[1];
-			double scale_y = (double)param[2];
 			polygon_lib[handle].trans = Mat3x3.Scale(scale_x, scale_y) * polygon_lib[handle].trans;
 		}
 
-		public void CMD_Rotate(int handle, double theta)
+		public void Rotate(int handle, double theta)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_rotate, param = new object[] { handle, theta } });
-		}
-
-		private void cmd_rotate(params object[] param)
-		{
-			int handle = (int)param[0];
-			double theta = (double)param[1];
 			polygon_lib[handle].trans = Mat3x3.RotateCounterClockwise(theta) * polygon_lib[handle].trans;
 		}
 
-		public void CMD_Translate(int handle, double translate_x, double translate_y)
+		public void Translate(int handle, double translate_x, double translate_y)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_translate, param = new object[] { handle, translate_x, translate_y } });
-		}
-
-		private void cmd_translate(params object[] param)
-		{
-			int handle = (int)param[0];
-			double translate_x = (double)param[1];
-			double translate_y = (double)param[2];
 			polygon_lib[handle].trans = Mat3x3.Translate(translate_x, translate_y) * polygon_lib[handle].trans;
 		}
 
-		public void CMD_TranslateOriginToZero(IEnumerable<int> handles)
+		public void TranslateOriginToZero(IEnumerable<int> handles)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_translate_origin_to_zero, param = new object[] { handles } });
-		}
+			HashSet<int> unique = PreprocessHandles(handles);
 
-		private void cmd_translate_origin_to_zero(params object[] param)
-		{
-			HashSet<int> unique = PreprocessHandles(param[0] as IEnumerable<int>);
-
-			foreach (int i in unique)
-			{
+			foreach (int i in unique) {
 				IntPoint o = polygon_lib[i].GetTransformedPoint(0, 0);
-				cmd_translate(i, (double)-o.X, (double)-o.Y);
+				Translate(i, -o.X, -o.Y);
 			}
 		}
 
-		public void CMD_Refit(Rect64 target, bool stretch, IEnumerable<int> handles)
+		public void Refit(Rect64 target, bool stretch, IEnumerable<int> handles)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_refit, param = new object[] { target, stretch, handles } });
-		}
-
-		private void cmd_refit(params object[] param)
-		{
-			Rect64 target = (Rect64)param[0];
-			bool stretch = (bool)param[1];
-			HashSet<int> unique = PreprocessHandles(param[2] as IEnumerable<int>);
+			HashSet<int> unique = PreprocessHandles(handles);
 
 			HashSet<Vector64> points = new HashSet<Vector64>();
 			foreach (int i in unique)
@@ -932,10 +830,9 @@ namespace PolyNester
 			Vector64 scale, trans;
 			GeomUtility.GetRefitTransform(points, target, stretch, out scale, out trans);
 
-			foreach (int i in unique)
-			{
-				cmd_scale(i, scale.X, scale.Y);
-				cmd_translate(i, trans.X, trans.Y);
+			foreach (int i in unique) {
+				Scale(i, scale.X, scale.Y);
+				Translate(i, trans.X, trans.Y);
 			}
 		}
 
@@ -1007,21 +904,15 @@ namespace PolyNester
 				body(k);
 		}
 
-		public void CMD_Nest(IEnumerable<int> handles, NFPQUALITY max_quality = NFPQUALITY.Full)
-		{
-			command_buffer.Enqueue(new Command() { Call = cmd_nest, param = new object[] { handles, max_quality } });
-		}
-
 		/// <summary>
 		/// Nest the collection of handles with minimal enclosing square from origin
 		/// </summary>
 		/// <param name="handles"></param>
-		private void cmd_nest(params object[] param)
+		public void Nest(IEnumerable<int> handles, NFPQUALITY max_quality = NFPQUALITY.Full)
 		{
-			HashSet<int> unique = PreprocessHandles(param[0] as IEnumerable<int>);
-			NFPQUALITY max_quality = (NFPQUALITY)param[1];
+			HashSet<int> unique = PreprocessHandles(handles);
 
-			cmd_translate_origin_to_zero(unique);
+			TranslateOriginToZero(unique);
 
 			int n = unique.Count;
 
@@ -1045,8 +936,7 @@ namespace PolyNester
 
 			// the row corresponds to pattern and col to nfp for this pattern on col subj
 			int[,] nfps = new int[n, n];
-			for (int k = 0; k < update_breaks; k++)
-			{
+			for (int k = 0; k < update_breaks; k++) {
 				int start = k * nfp_chunk_sz;
 				int end = Math.Min((k + 1) * nfp_chunk_sz, n * n);
 
@@ -1056,24 +946,15 @@ namespace PolyNester
 				Parallel.For(start, end, i => nfps[i / n, i % n] = i / n == i % n ? -1 : NFPKernel(ordered_handles[i % n], ordered_handles[i / n], max_bound_area, base_cnt + i - (i % n > i / n ? 1 : 0) - i / n, max_quality));
 
 				double progress = Math.Min(((double)(k + 1)) / (update_breaks + 1) * 50.0, 50.0);
-				background_worker.ReportProgress((int)progress);
-
-				if (background_worker.CancellationPending)
-					break;
 			}
 
 			int place_chunk_sz = Math.Max(n / update_breaks, 1);
 
 			bool[] placed = new bool[n];
-			for (int i = 0; i < n; i++)
-			{
-				if (i % 10 == 0 && background_worker.CancellationPending)
-					break;
-
+			for (int i = 0; i < n; i++) {
 				Clipper c = new Clipper();
 				c.AddPath(polygon_lib[canvas_regions[i]].poly[0], PolyType.ptSubject, true);
-				for (int j = 0; j < i; j++)
-				{
+				for (int j = 0; j < i; j++) {
 					if (!placed[j])
 						continue;
 
@@ -1090,12 +971,10 @@ namespace PolyNester
 				IntPoint place = new IntPoint(0, 0);
 				long pl_score = long.MaxValue;
 				for (int k = 0; k < fit_region.Count; k++)
-					for (int l = 0; l < fit_region[k].Count; l++)
-					{
+					for (int l = 0; l < fit_region[k].Count; l++) {
 						IntPoint cand = fit_region[k][l];
 						long cd_score = Math.Max(cand.X + ext_x, cand.Y + ext_y);
-						if (cd_score < pl_score)
-						{
+						if (cd_score < pl_score) {
 							pl_score = cd_score;
 							place = cand;
 							placed[i] = true;
@@ -1105,15 +984,9 @@ namespace PolyNester
 				if (!placed[i])
 					continue;
 
-				cmd_translate(ordered_handles[i], (double)(place.X - o.X), (double)(place.Y - o.Y));
+				Translate(ordered_handles[i], (double)(place.X - o.X), (double)(place.Y - o.Y));
 				for (int k = i + 1; k < n; k++)
-					cmd_translate(nfps[k, i], (double)(place.X - o.X), (double)(place.Y - o.Y));
-
-				if (i % place_chunk_sz == 0)
-				{
-					double progress = Math.Min(60.0 + ((double)(i / place_chunk_sz)) / (update_breaks + 1) * 40.0, 100.0);
-					background_worker.ReportProgress((int)progress);
-				}
+					Translate(nfps[k, i], (double)(place.X - o.X), (double)(place.Y - o.Y));
 			}
 
 			for (int i = 0; i < ordered_handles.Length; i++) {
@@ -1124,12 +997,15 @@ namespace PolyNester
 			polygon_lib.RemoveRange(start_cnt, polygon_lib.Count - start_cnt);
 		}
 
-		public void CMD_OptimalRotation(IEnumerable<int> handles)
+		public void FindOptimalRotation(IEnumerable<int> handles)
 		{
-			command_buffer.Enqueue(new Command() { Call = cmd_optimal_rotation, param = new object[] { handles } });
+			HashSet<int> unique = PreprocessHandles(handles);
+
+			foreach (int i in unique)
+				FindOptimalRotation(i);
 		}
 
-		private void cmd_optimal_rotation(int handle)
+		private void FindOptimalRotation(int handle)
 		{
 			Ngon hull = polygon_lib[handle].GetTransformedPoly()[0];
 			int n = hull.Count;
@@ -1163,17 +1039,9 @@ namespace PolyNester
 			double flip = flip_best ? Math.PI * 0.5 : 0;
 			IntPoint around = hull[best];
 
-			cmd_translate(handle, (double)-around.X, (double)-around.Y);
-			cmd_rotate(handle, best_t + flip);
-			cmd_translate(handle, (double)around.X, (double)around.Y);
-		}
-
-		private void cmd_optimal_rotation(params object[] param)
-		{
-			HashSet<int> unique = PreprocessHandles(param[0] as IEnumerable<int>);
-
-			foreach (int i in unique)
-				cmd_optimal_rotation(i);
+			Translate(handle, -around.X, -around.Y);
+			Rotate(handle, best_t + flip);
+			Translate(handle, around.X, around.Y);
 		}
 
 		/// <summary>
