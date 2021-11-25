@@ -123,7 +123,7 @@ namespace PolyNester
 
 	public struct Mat3x3
 	{
-		public double x11, x12, x13, x21, x22, x23, x31, x32, x33;
+		public double X11, X12, X13, X21, X22, X23, X31, X32, X33;
 
 		public static Mat3x3 Eye()
 		{
@@ -137,15 +137,15 @@ namespace PolyNester
 			double c = Math.Cos(t);
 			double s = Math.Sin(t);
 
-			T.x11 = c;
-			T.x12 = -s;
-			T.x13 = 0;
-			T.x21 = s;
-			T.x22 = c;
-			T.x23 = 0;
-			T.x31 = 0;
-			T.x32 = 0;
-			T.x33 = 1;
+			T.X11 = c;
+			T.X12 = -s;
+			T.X13 = 0;
+			T.X21 = s;
+			T.X22 = c;
+			T.X23 = 0;
+			T.X31 = 0;
+			T.X32 = 0;
+			T.X33 = 1;
 
 			return T;
 		}
@@ -153,15 +153,15 @@ namespace PolyNester
 		public static Mat3x3 Scale(double scale_x, double scale_y, double scale_z = 1.0)
 		{
 			Mat3x3 I = new Mat3x3();
-			I.x11 = scale_x;
-			I.x12 = 0;
-			I.x13 = 0;
-			I.x21 = 0;
-			I.x22 = scale_y;
-			I.x23 = 0;
-			I.x31 = 0;
-			I.x32 = 0;
-			I.x33 = scale_z;
+			I.X11 = scale_x;
+			I.X12 = 0;
+			I.X13 = 0;
+			I.X21 = 0;
+			I.X22 = scale_y;
+			I.X23 = 0;
+			I.X31 = 0;
+			I.X32 = 0;
+			I.X33 = scale_z;
 
 			return I;
 		}
@@ -169,16 +169,16 @@ namespace PolyNester
 		public static Mat3x3 Translate(double t_x, double t_y)
 		{
 			Mat3x3 I = new Mat3x3();
-			I.x11 = 1;
-			I.x12 = 0;
-			I.x13 = t_x;
+			I.X11 = 1;
+			I.X12 = 0;
+			I.X13 = t_x;
 
-			I.x21 = 0;
-			I.x22 = 1;
-			I.x23 = t_y;
-			I.x31 = 0;
-			I.x32 = 0;
-			I.x33 = 1;
+			I.X21 = 0;
+			I.X22 = 1;
+			I.X23 = t_y;
+			I.X31 = 0;
+			I.X32 = 0;
+			I.X33 = 1;
 
 			return I;
 		}
@@ -186,15 +186,15 @@ namespace PolyNester
 		public static Mat3x3 operator *(Mat3x3 A, Mat3x3 B)
 		{
 			Mat3x3 I = new Mat3x3();
-			I.x11 = A.x11 * B.x11 + A.x12 * B.x21 + A.x13 * B.x31;
-			I.x12 = A.x11 * B.x12 + A.x12 * B.x22 + A.x13 * B.x32;
-			I.x13 = A.x11 * B.x13 + A.x12 * B.x23 + A.x13 * B.x33;
-			I.x21 = A.x21 * B.x11 + A.x22 * B.x21 + A.x23 * B.x31;
-			I.x22 = A.x21 * B.x12 + A.x22 * B.x22 + A.x23 * B.x32;
-			I.x23 = A.x21 * B.x13 + A.x22 * B.x23 + A.x23 * B.x33;
-			I.x31 = A.x31 * B.x11 + A.x32 * B.x21 + A.x33 * B.x31;
-			I.x32 = A.x31 * B.x12 + A.x32 * B.x22 + A.x33 * B.x32;
-			I.x33 = A.x31 * B.x13 + A.x32 * B.x23 + A.x33 * B.x33;
+			I.X11 = A.X11 * B.X11 + A.X12 * B.X21 + A.X13 * B.X31;
+			I.X12 = A.X11 * B.X12 + A.X12 * B.X22 + A.X13 * B.X32;
+			I.X13 = A.X11 * B.X13 + A.X12 * B.X23 + A.X13 * B.X33;
+			I.X21 = A.X21 * B.X11 + A.X22 * B.X21 + A.X23 * B.X31;
+			I.X22 = A.X21 * B.X12 + A.X22 * B.X22 + A.X23 * B.X32;
+			I.X23 = A.X21 * B.X13 + A.X22 * B.X23 + A.X23 * B.X33;
+			I.X31 = A.X31 * B.X11 + A.X32 * B.X21 + A.X33 * B.X31;
+			I.X32 = A.X31 * B.X12 + A.X32 * B.X22 + A.X33 * B.X32;
+			I.X33 = A.X31 * B.X13 + A.X32 * B.X23 + A.X33 * B.X33;
 
 			return I;
 		}
@@ -202,16 +202,16 @@ namespace PolyNester
 		public static Vector64 operator *(Mat3x3 A, Vector64 B)
 		{
 			Vector64 v = new Vector64();
-			v.X = A.x11 * B.X + A.x12 * B.Y + A.x13;
-			v.Y = A.x21 * B.X + A.x22 * B.Y + A.x23;
+			v.X = A.X11 * B.X + A.X12 * B.Y + A.X13;
+			v.Y = A.X21 * B.X + A.X22 * B.Y + A.X23;
 
 			return v;
 		}
 
 		public static IntPoint operator *(Mat3x3 A, IntPoint B)
 		{
-			double x = A.x11 * B.X + A.x12 * B.Y + A.x13;
-			double y = A.x21 * B.X + A.x22 * B.Y + A.x23;
+			double x = A.X11 * B.X + A.X12 * B.Y + A.X13;
+			double y = A.X21 * B.X + A.X22 * B.Y + A.X23;
 
 			return new IntPoint(x, y);
 		}
@@ -223,7 +223,7 @@ namespace PolyNester
 
 		public double Determinant()
 		{
-			return x11 * Det2x2(x22, x23, x32, x33) - x12 * Det2x2(x21, x23, x31, x33) + x13 * Det2x2(x21, x22, x31, x32);
+			return X11 * Det2x2(X22, X23, X32, X33) - X12 * Det2x2(X21, X23, X31, X33) + X13 * Det2x2(X21, X22, X31, X32);
 		}
 
 		public Mat3x3 Inverse()
@@ -231,15 +231,15 @@ namespace PolyNester
 			double D = Determinant();
 
 			Mat3x3 I = new Mat3x3();
-			I.x11 = Det2x2(x22, x23, x32, x33) / D;
-			I.x12 = Det2x2(x13, x12, x33, x32) / D;
-			I.x13 = Det2x2(x12, x13, x22, x23) / D;
-			I.x21 = Det2x2(x23, x21, x33, x31) / D;
-			I.x22 = Det2x2(x11, x13, x31, x33) / D;
-			I.x23 = Det2x2(x13, x11, x23, x21) / D;
-			I.x31 = Det2x2(x21, x22, x31, x32) / D;
-			I.x32 = Det2x2(x12, x11, x32, x31) / D;
-			I.x33 = Det2x2(x11, x12, x21, x22) / D;
+			I.X11 = Det2x2(X22, X23, X32, X33) / D;
+			I.X12 = Det2x2(X13, X12, X33, X32) / D;
+			I.X13 = Det2x2(X12, X13, X22, X23) / D;
+			I.X21 = Det2x2(X23, X21, X33, X31) / D;
+			I.X22 = Det2x2(X11, X13, X31, X33) / D;
+			I.X23 = Det2x2(X13, X11, X23, X21) / D;
+			I.X31 = Det2x2(X21, X22, X31, X32) / D;
+			I.X32 = Det2x2(X12, X11, X32, X31) / D;
+			I.X33 = Det2x2(X11, X12, X21, X22) / D;
 
 			return I;
 		}
