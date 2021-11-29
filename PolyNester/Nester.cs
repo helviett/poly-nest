@@ -1267,5 +1267,18 @@ namespace PolyNester
 			for (int i = 0; i < points.Length; i++)
 				points[i] = (1.0 / unit_scale) * (polygon_lib[handles[i]].trans.Inverse() * points[i]);
 		}
+
+		public void Offset(IEnumerable<int> handles, double by)
+		{
+			by *= upscale;
+			HashSet<int> unique = PreprocessHandles(handles);
+			var clipper_offset = new ClipperOffset();
+			foreach (var handle in unique) {
+				var polygon = polygon_lib[handle].poly;
+				clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
+				clipper_offset.Execute(ref polygon_lib[handle].poly, by);
+				clipper_offset.Clear();
+			}
+		}
 	}
 }
