@@ -1208,7 +1208,7 @@ namespace PolyNester
 		{
 			Ngon B = polygon_lib[pattern_handle].GetTransformedPoly()[0];
 
-			Ngon C = GeomUtility.CanFitInsidePolygon(canvas, B);
+			Ngon C = GeomUtility.CanFitInsidePolygon(canvas, B) ?? new Ngon();
 			polygon_lib.Add(new PolyRef() { poly = new Ngons() { C }, trans = Mat3x3.Eye() });
 			return polygon_lib.Count - 1;
 		}
