@@ -1154,7 +1154,7 @@ namespace PolyNester
 			return clust_ids;
 		}
 
-		public void AddPolygon(List<List<Vector64>> polygon, bool simplify = false)
+		public int AddPolygon(List<List<Vector64>> polygon, bool simplify = false)
 		{
 			var clipper_polygon = polygon.Select(part =>
 				part.Select(v =>
@@ -1165,6 +1165,7 @@ namespace PolyNester
 				clipper_polygon = Clipper.SimplifyPolygons(clipper_polygon, PolyFillType.pftNonZero);
 			}
 			polygon_lib.Add(new PolyRef { poly = clipper_polygon, trans = Mat3x3.Eye(), });
+			return polygon_lib.Count - 1;
 		}
 
 		/// <summary>
@@ -1279,6 +1280,16 @@ namespace PolyNester
 				clipper_offset.Execute(ref polygon_lib[handle].poly, by);
 				clipper_offset.Clear();
 			}
+		}
+
+		public void Offset(int handle, double by)
+		{
+			by *= upscale;
+			var clipper_offset = new ClipperOffset();
+			var polygon = polygon_lib[handle].poly;
+			clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
+			clipper_offset.Execute(ref polygon_lib[handle].poly, by);
+			clipper_offset.Clear();
 		}
 	}
 }
