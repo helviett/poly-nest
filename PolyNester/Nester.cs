@@ -82,7 +82,6 @@ namespace PolyNester
 		{
 			return (X.GetHashCode() ^ Y.GetHashCode());
 		}
-
 	}
 
 	public struct Rect64
@@ -699,7 +698,10 @@ namespace PolyNester
 
 			if (l > r || b > t)
 				return null;
-
+			if (l == r && b == t)
+				return new Ngon { new IntPoint(l, t), };
+			if (l == r || b == t)
+				return new Ngon { new IntPoint(l, b), new IntPoint(r, t), };
 			return new Ngon() { new IntPoint(l, b), new IntPoint(r, b), new IntPoint(r, t), new IntPoint(l, t) };
 		}
 
@@ -953,34 +955,79 @@ namespace PolyNester
 			bool[] placed = new bool[n];
 			for (int i = 0; i < n; i++) {
 				Clipper c = new Clipper();
-				c.AddPath(polygon_lib[canvas_regions[i]].poly[0], PolyType.ptSubject, true);
-				for (int j = 0; j < i; j++) {
-					if (!placed[j])
-						continue;
-
-					c.AddPaths(polygon_lib[nfps[i, j]].GetTransformedPoly(), PolyType.ptClip, true);
-				}
-				Ngons fit_region = new Ngons();
-				c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
-
-
-				IntPoint o = polygon_lib[ordered_handles[i]].GetTransformedPoint(0, 0);
-				IntRect bds = bounds[ordered_handles[i]];
-				long ext_x = bds.right - o.X;
-				long ext_y = bds.top - o.Y;
+				var canvas = polygon_lib[canvas_regions[i]].poly[0];
 				IntPoint place = new IntPoint(0, 0);
-				long pl_score = long.MaxValue;
-				for (int k = 0; k < fit_region.Count; k++)
-					for (int l = 0; l < fit_region[k].Count; l++) {
-						IntPoint cand = fit_region[k][l];
-						long cd_score = Math.Max(cand.X + ext_x, cand.Y + ext_y);
-						if (cd_score < pl_score) {
-							pl_score = cd_score;
-							place = cand;
-							placed[i] = true;
+				IntPoint o = polygon_lib[ordered_handles[i]].GetTransformedPoint(0, 0);
+				if (canvas.Count == 0)
+					continue;
+				else if (canvas.Count == 1) {
+					// One point region: check if any nfp contains that point
+					// According to current implementation this branch can be simplified to:
+					// `placed[i] = !placed.Any(p => p);`
+					// But we'll generalize it.
+					place = canvas[0];
+					placed[i] = true;
+					for (int j = 0; j < i; j++) {
+						if (!placed[j])
+							continue;
+						var nfp = polygon_lib[nfps[i, j]].GetTransformedPoly();
+						if (IsPointInPolygon(place, nfp)) {
+							placed[i] = false;
+							break;
 						}
 					}
+				} else if (canvas.Count == 2) {
+					c.AddPath(canvas, PolyType.ptSubject, false);
+					for (int j = 0; j < i; j++) {
+						if (!placed[j])
+							continue;
 
+						c.AddPaths(polygon_lib[nfps[i, j]].GetTransformedPoly(), PolyType.ptClip, true);
+					}
+					var fit_region = new PolyTree();
+					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
+					IntRect bds = bounds[ordered_handles[i]];
+					long ext_x = bds.right - o.X;
+					long ext_y = bds.top - o.Y;
+					long pl_score = long.MaxValue;
+					var node = (PolyNode)fit_region;
+					while (node != null) {
+						foreach (var vertex in node.Contour) {
+							long cd_score = Math.Max(vertex.X + ext_x, vertex.Y + ext_y);
+							if (cd_score < pl_score) {
+								pl_score = cd_score;
+								place = vertex;
+								placed[i] = true;
+							}
+						}
+						node = node.GetNext();
+					}
+				} else {
+					// Copy-paster because filling and iterating ngons is 10-15% faster then PolyTree
+					c.AddPath(canvas, PolyType.ptSubject, true);
+					for (int j = 0; j < i; j++) {
+						if (!placed[j])
+							continue;
+
+						c.AddPaths(polygon_lib[nfps[i, j]].GetTransformedPoly(), PolyType.ptClip, true);
+					}
+					Ngons fit_region = new Ngons();
+					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
+					IntRect bds = bounds[ordered_handles[i]];
+					long ext_x = bds.right - o.X;
+					long ext_y = bds.top - o.Y;
+					long pl_score = long.MaxValue;
+					for (int k = 0; k < fit_region.Count; k++)
+						for (int l = 0; l < fit_region[k].Count; l++) {
+							IntPoint cand = fit_region[k][l];
+							long cd_score = Math.Max(cand.X + ext_x, cand.Y + ext_y);
+							if (cd_score < pl_score) {
+								pl_score = cd_score;
+								place = cand;
+								placed[i] = true;
+							}
+						}
+				}
 				if (!placed[i])
 					continue;
 
@@ -1290,6 +1337,38 @@ namespace PolyNester
 			clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
 			clipper_offset.Execute(ref polygon_lib[handle].poly, by);
 			clipper_offset.Clear();
+		}
+
+		private static bool IsPointInPolygon(IntPoint point, Ngons polygon)
+		{
+			var windingNumber = 0;
+			foreach (var part in polygon) {
+				var current = part[^1];
+				foreach (var next in part) {
+					var o = IntPoint.Cross(current - point, next - current);
+					if (current.Y <= point.Y) {
+						if (next.Y > point.Y) {
+							if (o == 0) {
+								return true;
+							}
+							if (o < 0) {
+								windingNumber++;
+							}
+						}
+					} else {
+						if (next.Y <= point.Y) {
+							if (o == 0) {
+								return true;
+							}
+							if (o > 0) {
+								windingNumber--;
+							}
+						}
+					}
+					current = next;
+				}
+			}
+			return windingNumber != 0;
 		}
 	}
 }
