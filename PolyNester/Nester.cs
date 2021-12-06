@@ -743,13 +743,13 @@ namespace PolyNester
 		private class PolyRef
 		{
 			public Ngons poly;
+			public Ngons original;
 			public Mat3x3 trans;
 			public bool is_placed;
 
-			public IntPoint GetTransformedPoint(int poly_id, int index)
-			{
-				return trans * poly[poly_id][index];
-			}
+			public IntPoint GetTransformedPoint(int poly_id, int index) => trans * poly[poly_id][index];
+
+			public IntPoint GetTransformedOriginalPoint(int poly_id, int index) => trans * original[poly_id][index];
 
 			public Ngons GetTransformedPoly()
 			{
@@ -759,6 +759,18 @@ namespace PolyNester
 					Ngon nn = new Ngon(poly[i].Count);
 					for (int j = 0; j < poly[i].Count; j++)
 						nn.Add(GetTransformedPoint(i, j));
+					n.Add(nn);
+				}
+				return n;
+			}
+
+			public Ngons GetTransformedOriginalPoly()
+			{
+				Ngons n = new Ngons(original.Count);
+				for (int i = 0; i < original.Count; i++) {
+					Ngon nn = new Ngon(original[i].Count);
+					for (int j = 0; j < original[i].Count; j++)
+						nn.Add(GetTransformedOriginalPoint(i, j));
 					n.Add(nn);
 				}
 				return n;
@@ -1101,7 +1113,11 @@ namespace PolyNester
 			if (simplify) {
 				clipper_polygon = Clipper.SimplifyPolygons(clipper_polygon, PolyFillType.pftNonZero);
 			}
-			polygon_lib.Add(new PolyRef { poly = clipper_polygon, trans = Mat3x3.Eye(), });
+			polygon_lib.Add(new PolyRef {
+				poly = clipper_polygon,
+				original = clipper_polygon.Clone(),
+				trans = Mat3x3.Eye(),
+			});
 			return polygon_lib.Count - 1;
 		}
 
@@ -1123,7 +1139,7 @@ namespace PolyNester
 
 		public int AddCanvasFitPolygon(IntRect canvas, int pattern_handle)
 		{
-			Ngon B = polygon_lib[pattern_handle].GetTransformedPoly()[0];
+			Ngon B = polygon_lib[pattern_handle].GetTransformedOriginalPoly()[0];
 
 			Ngon C = GeomUtility.CanFitInsidePolygon(canvas, B) ?? new Ngon();
 			polygon_lib.Add(new PolyRef() { poly = new Ngons() { C }, trans = Mat3x3.Eye() });
@@ -1192,7 +1208,7 @@ namespace PolyNester
 			HashSet<int> unique = PreprocessHandles(handles);
 			var clipper_offset = new ClipperOffset();
 			foreach (var handle in unique) {
-				var polygon = polygon_lib[handle].poly;
+				var polygon = polygon_lib[handle].original;
 				clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
 				clipper_offset.Execute(ref polygon_lib[handle].poly, by);
 				clipper_offset.Clear();
