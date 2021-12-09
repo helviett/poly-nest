@@ -1073,6 +1073,9 @@ namespace PolyNester
 			int best = 0;
 			long best_area = long.MaxValue;
 			bool flip_best = false;
+			var canvas_width = (long)(Container.X * Upscale);
+			var canvas_height = (long)(Container.Y * Upscale);
+			var infinite_container = canvas_height == 0 || canvas_width == 0;
 
 			for (int i = 0; i < n; i++)
 			{
@@ -1085,13 +1088,16 @@ namespace PolyNester
 				IntRect bounds = GeomUtility.GetBounds(clone);
 				long area = bounds.Area();
 				double aspect = bounds.Aspect();
+				var width = bounds.Width();
+				var height = bounds.Height();
 
-				if (area < best_area)
+				if (area < best_area && (infinite_container || (width <= canvas_width && height <= canvas_height)))
 				{
 					best_area = area;
 					best = i;
 					best_t = t;
-					flip_best = aspect > 1.0;
+					flip_best = aspect > 1.0
+						&& (infinite_container || (height <= canvas_width && width <= canvas_height));
 				}
 			}
 
@@ -1186,8 +1192,10 @@ namespace PolyNester
 
 		public void ResetTransformLib()
 		{
-			for (int i = 0; i < polygon_lib.Count; i++)
+			for (int i = 0; i < polygon_lib.Count; i++) {
 				polygon_lib[i].trans = Mat3x3.Eye();
+				polygon_lib[i].is_placed = false;
+			}
 		}
 
 		public void ApplyTransformLibUVSpace(Vector64[] points, int[] handles)
