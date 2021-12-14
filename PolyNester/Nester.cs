@@ -724,7 +724,9 @@ namespace PolyNester
 
 	public class Nester
 	{
+		private int current_group_index = 0;
 		private long upscale = 1;
+		private List<List<int>> groups = new List<List<int>>();
 
 		public long Upscale
 		{
@@ -746,6 +748,7 @@ namespace PolyNester
 			public Ngons original;
 			public Mat3x3 trans;
 			public bool is_placed;
+			public int group;
 
 			public IntPoint GetTransformedPoint(int poly_id, int index) => trans * poly[poly_id][index];
 
@@ -777,19 +780,34 @@ namespace PolyNester
 			}
 		}
 
-		private class Command
-		{
-			public Action<object[]> Call;
-			public object[] param;
-		}
-
 		private const long unit_scale = 10000000;
 
 		private List<PolyRef> polygon_lib;  // list of saved polygons for reference by handle, stores raw poly positions and transforms
 
 		public int LibSize { get { return polygon_lib.Count; } }
 
-		public void RemovePlaced() => polygon_lib.RemoveAll(pr => pr.is_placed);
+		public int GroupCount => groups.Count;
+
+		public void RemovePlaced()
+		{
+			var bad = groups.Where(g => !g.All(p => polygon_lib[p].is_placed) && g.Any(p => polygon_lib[p].is_placed)).ToList();
+			if (bad.Count > 0) {
+				throw new InvalidOperationException("ASDASDASD");
+			}
+			groups.RemoveAll(g => g.All(p => polygon_lib[p].is_placed));
+			for (int i = 0; i < groups.Count; i++) {
+				var group = groups[i];
+				foreach (var handle in group) {
+					polygon_lib[handle].group = i;
+				}
+				group.Clear();
+			}
+			polygon_lib.RemoveAll(pr => pr.is_placed);
+			for (int i = 0; i < polygon_lib.Count; i++) {
+				PolyRef p = polygon_lib[i];
+				groups[p.group].Add(i);
+			}
+		}
 
 		public Nester()
 		{
@@ -929,13 +947,31 @@ namespace PolyNester
 			TranslateOriginToZero(unique);
 
 			int n = unique.Count;
-
-			Dictionary<int, IntRect> bounds = new Dictionary<int, IntRect>();
-			foreach (int handle in unique)
-				bounds.Add(handle, GeomUtility.GetBounds(polygon_lib[handle].GetTransformedPoly()[0]));
-
-			int[] ordered_handles = unique.OrderByDescending(p => Math.Max(bounds[p].Height(), bounds[p].Width())).ToArray();
-			double max_bound_area = bounds[ordered_handles[0]].Area();
+			var group_bounds = new Dictionary<int, IntRect>();
+			var polygon_bounds = new IntRect[polygon_lib.Count];
+			foreach (int handle in unique) {
+				var group = polygon_lib[handle].group;
+				var bound = GeomUtility.GetBounds(polygon_lib[handle].GetTransformedPoly()[0]);
+				polygon_bounds[handle] = bound;
+				if (group_bounds.TryGetValue(group, out IntRect rect)) {
+					bound.left = Math.Min(rect.left, bound.left);
+					bound.top = Math.Min(rect.top, bound.top);
+					bound.right = Math.Max(rect.right, bound.right);
+					bound.bottom = Math.Max(rect.bottom, bound.bottom);
+				}
+				group_bounds[group] = bound;
+			}
+			var comparer = Comparer<int>.Create((lhs, rhs) => {
+				var lhs_group = polygon_lib[lhs].group;
+				var rhs_group = polygon_lib[rhs].group;
+				var lhs_max = Math.Max(group_bounds[lhs_group].Height(), group_bounds[lhs_group].Width());
+				var rhs_max = Math.Max(group_bounds[rhs_group].Height(), group_bounds[rhs_group].Width());
+				return lhs_max == rhs_max
+					? lhs_group.CompareTo(rhs_group)
+					: lhs_max.CompareTo(rhs_max);
+			});
+			int[] ordered_handles = unique.OrderByDescending(p => p, comparer).ToArray();
+			double max_bound_area = group_bounds[polygon_lib[ordered_handles[0]].group].Area();
 
 			int start_cnt = polygon_lib.Count;
 
@@ -957,15 +993,30 @@ namespace PolyNester
 				if (start >= end)
 					break;
 
-				Parallel.For(start, end, i => nfps[i / n, i % n] = i / n == i % n ? -1 : NFPKernel(ordered_handles[i % n], ordered_handles[i / n], max_bound_area, base_cnt + i - (i % n > i / n ? 1 : 0) - i / n, max_quality));
-
-				double progress = Math.Min(((double)(k + 1)) / (update_breaks + 1) * 50.0, 50.0);
+				Parallel.For(
+					start,
+					end,
+					i => nfps[i / n, i % n] = i / n == i % n
+						? -1
+						: NFPKernel(
+							ordered_handles[i % n],
+							ordered_handles[i / n],
+							max_bound_area,
+							base_cnt + i - (i % n > i / n ? 1 : 0) - i / n,
+							max_quality
+						)
+				);
 			}
 
-			int place_chunk_sz = Math.Max(n / update_breaks, 1);
-
 			bool[] placed = new bool[n];
+			var current_group = -1;
+			var group_start = -1;
 			for (int i = 0; i < n; i++) {
+				var group = polygon_lib[ordered_handles[i]].group;
+				if (group != current_group) {
+					current_group = group;
+					group_start = i;
+				}
 				Clipper c = new Clipper();
 				var canvas = polygon_lib[canvas_regions[i]].poly[0];
 				IntPoint place = new IntPoint(0, 0);
@@ -998,7 +1049,7 @@ namespace PolyNester
 					}
 					var fit_region = new PolyTree();
 					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
-					IntRect bds = bounds[ordered_handles[i]];
+					IntRect bds = polygon_bounds[ordered_handles[i]];
 					long ext_x = bds.right - o.X;
 					long ext_y = bds.top - o.Y;
 					long pl_score = long.MaxValue;
@@ -1025,7 +1076,7 @@ namespace PolyNester
 					}
 					Ngons fit_region = new Ngons();
 					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
-					IntRect bds = bounds[ordered_handles[i]];
+					IntRect bds = polygon_bounds[ordered_handles[i]];
 					long ext_x = bds.right - o.X;
 					long ext_y = bds.top - o.Y;
 					long pl_score = long.MaxValue;
@@ -1040,8 +1091,15 @@ namespace PolyNester
 							}
 						}
 				}
-				if (!placed[i])
+				if (!placed[i]) {
+					if (group_start >= 0) {
+						while (polygon_lib[ordered_handles[group_start]].group == current_group) {
+							placed[group_start++] = false;
+						}
+						i = group_start - 1;
+					}
 					continue;
+				}
 
 				Translate(ordered_handles[i], (double)(place.X - o.X), (double)(place.Y - o.Y));
 				for (int k = i + 1; k < n; k++)
@@ -1109,7 +1167,7 @@ namespace PolyNester
 			Translate(handle, around.X, around.Y);
 		}
 
-		public int AddPolygon(List<List<Vector64>> polygon, bool simplify = false)
+		private int InnerAddPolygon(List<List<Vector64>> polygon, int group, bool simplify = false)
 		{
 			var clipper_polygon = polygon.Select(part =>
 				part.Select(v =>
@@ -1123,8 +1181,26 @@ namespace PolyNester
 				poly = clipper_polygon,
 				original = clipper_polygon.Clone(),
 				trans = Mat3x3.Eye(),
+				group = group,
 			});
+			if (group >= groups.Count) {
+				groups.Add(new List<int>());
+			}
+			groups[group].Add(polygon_lib.Count - 1);
 			return polygon_lib.Count - 1;
+		}
+
+		public int AddPolygon(List<List<Vector64>> polygon, bool simplify = false)
+		{
+			return InnerAddPolygon(polygon, current_group_index++, simplify);
+		}
+
+		public int AddPolygonGroup(List<List<List<Vector64>>> group, bool simplify = false)
+		{
+			foreach (var polygon in group) {
+				InnerAddPolygon(polygon, current_group_index, simplify);
+			}
+			return current_group_index++;
 		}
 
 		public int AddMinkowskiSum(int subj_handle, int pattern_handle, NFPQUALITY quality, bool flip_pattern, int set_at = -1)
@@ -1187,6 +1263,8 @@ namespace PolyNester
 		}
 
 		public bool IsPolygonPlaced(int handle) => polygon_lib[handle].is_placed;
+
+		public bool IsGroupPlaced(int handle) => groups[handle].All(p => polygon_lib[p].is_placed);
 
 		public Mat3x3 GetPolygonTransform(int handle) => polygon_lib[handle].trans;
 
@@ -1263,6 +1341,15 @@ namespace PolyNester
 				}
 			}
 			return windingNumber != 0;
+		}
+
+		public IEnumerable<int> GetGroupHandles(int group_id)
+		{
+			if (group_id < groups.Count) {
+				foreach (var handle in groups[group_id]) {
+					yield return handle;
+				}
+			}
 		}
 	}
 }
