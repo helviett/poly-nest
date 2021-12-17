@@ -727,6 +727,9 @@ namespace PolyNester
 		private int current_group_index = 0;
 		private long upscale = 1;
 		private List<List<int>> groups = new List<List<int>>();
+		private int[,] nfps = null;
+		private List<PolyRef> nfp_polygons = null;
+		private bool use_nfp_cache = false;
 
 		public long Upscale
 		{
@@ -742,6 +745,22 @@ namespace PolyNester
 
 		public Vector64 Container { get; set; }
 
+		public bool UseNfpCache
+		{
+			get => use_nfp_cache;
+			set
+			{
+				if (use_nfp_cache != value) {
+					use_nfp_cache = value;
+					if (!use_nfp_cache) {
+						nfp_polygons = null;
+					}
+				}
+			}
+		}
+
+		public bool ForceMaxQuality { get; set; }
+
 		private class PolyRef
 		{
 			public Ngons poly;
@@ -749,6 +768,8 @@ namespace PolyNester
 			public Mat3x3 trans;
 			public bool is_placed;
 			public int group;
+			// Relevant only for nfp polygons.
+			public NFPQUALITY quality;
 
 			public IntPoint GetTransformedPoint(int poly_id, int index) => trans * poly[poly_id][index];
 
@@ -790,10 +811,6 @@ namespace PolyNester
 
 		public void RemovePlaced()
 		{
-			var bad = groups.Where(g => !g.All(p => polygon_lib[p].is_placed) && g.Any(p => polygon_lib[p].is_placed)).ToList();
-			if (bad.Count > 0) {
-				throw new InvalidOperationException("ASDASDASD");
-			}
 			groups.RemoveAll(g => g.All(p => polygon_lib[p].is_placed));
 			for (int i = 0; i < groups.Count; i++) {
 				var group = groups[i];
@@ -801,6 +818,41 @@ namespace PolyNester
 					polygon_lib[handle].group = i;
 				}
 				group.Clear();
+			}
+			if (use_nfp_cache && nfp_polygons != null) {
+				var indicies = new List<int>();
+				var n = polygon_lib.Count;
+				for (int i = 0; i < n; i++) {
+					if (polygon_lib[i].is_placed) {
+						// remove row
+						var start = i * n - i;
+						indicies.AddRange(Enumerable.Range(start, n - 1));
+						// remove col
+						for (int r = 0; r < n; r++) {
+							if (polygon_lib[r].is_placed) {
+								continue;
+							}
+							var index = r * n - r + i - (i > r ? 1 : 0);
+							indicies.Add(index);
+						}
+					}
+				}
+				indicies.Sort();
+				var assign_to = 0;
+				var assign_from = 0;
+				var remove_index = 0;
+				foreach (var nfp in nfp_polygons) {
+					nfp.trans = Mat3x3.Eye();
+				}
+				while (assign_from < nfp_polygons.Count) {
+					if (remove_index < indicies.Count && assign_from == indicies[remove_index]) {
+						assign_from++;
+						remove_index++;
+						continue;
+					}
+					nfp_polygons[assign_to++] = nfp_polygons[assign_from++];
+				}
+				nfp_polygons.RemoveRange(assign_to, nfp_polygons.Count - assign_to);
 			}
 			polygon_lib.RemoveAll(pr => pr.is_placed);
 			for (int i = 0; i < polygon_lib.Count; i++) {
@@ -919,7 +971,9 @@ namespace PolyNester
 		/// <returns></returns>
 		private int NFPKernel(int subj_handle, int pattern_handle, double max_area_bounds, int lib_set_at, NFPQUALITY max_quality = NFPQUALITY.Full)
 		{
-			NFPQUALITY quality = GetNFPQuality(subj_handle, pattern_handle, max_area_bounds);
+			NFPQUALITY quality = ForceMaxQuality
+				? max_quality
+				: GetNFPQuality(subj_handle, pattern_handle, max_area_bounds);
 			quality = (NFPQUALITY)Math.Min((int)quality, (int)max_quality);
 			return AddMinkowskiSum(subj_handle, pattern_handle, quality, true, lib_set_at);
 		}
@@ -940,16 +994,15 @@ namespace PolyNester
 		/// Nest the collection of handles with minimal enclosing square from origin
 		/// </summary>
 		/// <param name="handles"></param>
-		public void Nest(IEnumerable<int> handles, NFPQUALITY max_quality = NFPQUALITY.Full)
+		public void Nest(NFPQUALITY max_quality = NFPQUALITY.Full)
 		{
-			HashSet<int> unique = PreprocessHandles(handles);
+			var handles = Enumerable.Range(0, polygon_lib.Count).ToArray();
+			TranslateOriginToZero(handles);
 
-			TranslateOriginToZero(unique);
-
-			int n = unique.Count;
+			int n = handles.Length;
 			var group_bounds = new Dictionary<int, IntRect>();
 			var polygon_bounds = new IntRect[polygon_lib.Count];
-			foreach (int handle in unique) {
+			foreach (int handle in handles) {
 				var group = polygon_lib[handle].group;
 				var bound = GeomUtility.GetBounds(polygon_lib[handle].GetTransformedPoly()[0]);
 				polygon_bounds[handle] = bound;
@@ -970,7 +1023,16 @@ namespace PolyNester
 					? lhs_group.CompareTo(rhs_group)
 					: lhs_max.CompareTo(rhs_max);
 			});
-			int[] ordered_handles = unique.OrderByDescending(p => p, comparer).ToArray();
+			Array.Sort(handles, (lhs, rhs) => {
+				var lhs_group = polygon_lib[lhs].group;
+				var rhs_group = polygon_lib[rhs].group;
+				var lhs_max = Math.Max(group_bounds[lhs_group].Height(), group_bounds[lhs_group].Width());
+				var rhs_max = Math.Max(group_bounds[rhs_group].Height(), group_bounds[rhs_group].Width());
+				return lhs_max == rhs_max
+					? rhs_group.CompareTo(lhs_group)
+					: rhs_max.CompareTo(lhs_max);
+			});
+			int[] ordered_handles = handles;
 			double max_bound_area = group_bounds[polygon_lib[ordered_handles[0]].group].Area();
 
 			int start_cnt = polygon_lib.Count;
@@ -978,35 +1040,8 @@ namespace PolyNester
 			int[] canvas_regions = AddCanvasFitPolygon(ordered_handles);
 
 			int base_cnt = polygon_lib.Count;
-			for (int i = 0; i < n * n - n; i++)
-				polygon_lib.Add(new PolyRef());
 
-			int update_breaks = 10;
-			int nfp_chunk_sz = n * n / update_breaks * update_breaks == n * n ? n * n / update_breaks : n * n / update_breaks + 1;
-
-			// the row corresponds to pattern and col to nfp for this pattern on col subj
-			int[,] nfps = new int[n, n];
-			for (int k = 0; k < update_breaks; k++) {
-				int start = k * nfp_chunk_sz;
-				int end = Math.Min((k + 1) * nfp_chunk_sz, n * n);
-
-				if (start >= end)
-					break;
-
-				Parallel.For(
-					start,
-					end,
-					i => nfps[i / n, i % n] = i / n == i % n
-						? -1
-						: NFPKernel(
-							ordered_handles[i % n],
-							ordered_handles[i / n],
-							max_bound_area,
-							base_cnt + i - (i % n > i / n ? 1 : 0) - i / n,
-							max_quality
-						)
-				);
-			}
+			CalculateNfpsIfNeeded(n, base_cnt, max_quality, max_bound_area);
 
 			bool[] placed = new bool[n];
 			var current_group = -1;
@@ -1033,7 +1068,7 @@ namespace PolyNester
 					for (int j = 0; j < i; j++) {
 						if (!placed[j])
 							continue;
-						var nfp = polygon_lib[nfps[i, j]].GetTransformedPoly();
+						var nfp = polygon_lib[nfps[ordered_handles[i], ordered_handles[j]]].GetTransformedPoly();
 						if (IsPointInPolygon(place, nfp)) {
 							placed[i] = false;
 							break;
@@ -1045,7 +1080,12 @@ namespace PolyNester
 						if (!placed[j])
 							continue;
 
-						c.AddPaths(polygon_lib[nfps[i, j]].GetTransformedPoly(), PolyType.ptClip, true);
+						c.AddPaths(
+							polygon_lib[nfps[ordered_handles[i],
+							ordered_handles[j]]].GetTransformedPoly(),
+							PolyType.ptClip,
+							true
+						);
 					}
 					var fit_region = new PolyTree();
 					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
@@ -1072,7 +1112,11 @@ namespace PolyNester
 						if (!placed[j])
 							continue;
 
-						c.AddPaths(polygon_lib[nfps[i, j]].GetTransformedPoly(), PolyType.ptClip, true);
+						c.AddPaths(
+							polygon_lib[nfps[ordered_handles[i], ordered_handles[j]]].GetTransformedPoly(),
+							PolyType.ptClip,
+							true
+						);
 					}
 					Ngons fit_region = new Ngons();
 					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
@@ -1093,7 +1137,7 @@ namespace PolyNester
 				}
 				if (!placed[i]) {
 					if (group_start >= 0) {
-						while (polygon_lib[ordered_handles[group_start]].group == current_group) {
+						while (group_start < n && polygon_lib[ordered_handles[group_start]].group == current_group) {
 							placed[group_start++] = false;
 						}
 						i = group_start - 1;
@@ -1101,9 +1145,9 @@ namespace PolyNester
 					continue;
 				}
 
-				Translate(ordered_handles[i], (double)(place.X - o.X), (double)(place.Y - o.Y));
+				Translate(ordered_handles[i], place.X - o.X, place.Y - o.Y);
 				for (int k = i + 1; k < n; k++)
-					Translate(nfps[k, i], (double)(place.X - o.X), (double)(place.Y - o.Y));
+					Translate(nfps[ordered_handles[k], ordered_handles[i]], place.X - o.X, place.Y - o.Y);
 			}
 
 			for (int i = 0; i < ordered_handles.Length; i++) {
@@ -1112,6 +1156,9 @@ namespace PolyNester
 
 			// remove temporary added values
 			polygon_lib.RemoveRange(start_cnt, polygon_lib.Count - start_cnt);
+			if (!use_nfp_cache) {
+				nfp_polygons = null;
+			}
 		}
 
 		public void FindOptimalRotation(IEnumerable<int> handles)
@@ -1209,7 +1256,7 @@ namespace PolyNester
 			Ngons B = polygon_lib[pattern_handle].GetTransformedPoly();
 
 			Ngons C = GeomUtility.MinkowskiSum(B[0], A, quality, flip_pattern);
-			PolyRef pref = new PolyRef() { poly = C, trans = Mat3x3.Eye() };
+			PolyRef pref = new PolyRef() { poly = C, trans = Mat3x3.Eye(), quality = quality, };
 
 			if (set_at < 0)
 				polygon_lib.Add(pref);
@@ -1349,6 +1396,57 @@ namespace PolyNester
 				foreach (var handle in groups[group_id]) {
 					yield return handle;
 				}
+			}
+		}
+
+		private void CalculateNfpsIfNeeded(int n, int base_cnt, NFPQUALITY max_quality, double max_bound_area)
+		{
+			const int update_breaks = 10;
+			int nfp_chunk_sz = n * n / update_breaks * update_breaks == n * n
+				? n * n / update_breaks
+				: n * n / update_breaks + 1;
+			nfps = new int[n, n];
+			var has_cached_nfps = use_nfp_cache && nfp_polygons != null;
+			if (has_cached_nfps) {
+				polygon_lib.AddRange(nfp_polygons);
+			} else {
+				for (int i = 0; i < n * n - n; i++) {
+					polygon_lib.Add(new PolyRef());
+				}
+			}
+			for (int k = 0; k < update_breaks; k++) {
+				int start = k * nfp_chunk_sz;
+				int end = Math.Min((k + 1) * nfp_chunk_sz, n * n);
+
+				if (start >= end)
+					break;
+
+				Parallel.For(
+					start,
+					end,
+					i => {
+						if (i / n == i % n) {
+							nfps[i / n, i % n] = -1;
+							return;
+						}
+						var index = base_cnt + i - (i % n > i / n ? 1 : 0) - i / n;
+						nfps[i / n, i % n] = index;
+						var nfp = polygon_lib[index];
+						if (!has_cached_nfps || (int)nfp.quality < (int)GetNFPQuality(i % n, i / n, max_bound_area)) {
+							NFPKernel(
+								i % n,
+								i / n,
+								max_bound_area,
+								index,
+								max_quality
+							);
+						}
+					}
+				);
+			}
+			if (!has_cached_nfps && use_nfp_cache) {
+				nfp_polygons = new List<PolyRef>(n * n - n);
+				nfp_polygons.AddRange(polygon_lib.Skip(base_cnt));
 			}
 		}
 	}
