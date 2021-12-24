@@ -871,6 +871,7 @@ namespace PolyNester
 				PolyRef p = polygon_lib[i];
 				groups[p.group].Add(i);
 			}
+			current_group_index = groups.Count;
 		}
 
 		public Nester()
