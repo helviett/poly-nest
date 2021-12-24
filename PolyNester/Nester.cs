@@ -1220,6 +1220,7 @@ namespace PolyNester
 
 		private int InnerAddPolygon(List<List<Vector64>> polygon, int group, bool simplify = false)
 		{
+			nfp_polygons = null;
 			var clipper_polygon = polygon.Select(part =>
 				part.Select(v =>
 					new IntPoint(v.X * upscale, v.Y * upscale)
