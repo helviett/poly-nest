@@ -198,6 +198,16 @@ namespace PolyNester
 			return I;
 		}
 
+		public static bool operator ==(Mat3x3 A, Mat3x3 B)
+		{
+			return
+				A.X11 == B.X11 && A.X12 == B.X12 && A.X13 == B.X13
+				&& A.X21 == B.X21 && A.X22 == B.X22 && A.X23 == B.X23
+				&& A.X31 == B.X31 && A.X32 == B.X32 && A.X33 == B.X33;
+		}
+
+		public static bool operator !=(Mat3x3 A, Mat3x3 B) => !(A == B);
+
 		public static Vector64 operator *(Mat3x3 A, Vector64 B)
 		{
 			Vector64 v = new Vector64();
@@ -729,6 +739,7 @@ namespace PolyNester
 		private List<List<int>> groups = new List<List<int>>();
 		private int[,] nfps = null;
 		private List<PolyRef> nfp_polygons = null;
+		private List<Mat3x3> initial_transforms = null;
 		private bool use_nfp_cache = false;
 
 		public long Upscale
@@ -853,6 +864,7 @@ namespace PolyNester
 					nfp_polygons[assign_to++] = nfp_polygons[assign_from++];
 				}
 				nfp_polygons.RemoveRange(assign_to, nfp_polygons.Count - assign_to);
+				initial_transforms = initial_transforms.Where((m, i) => !polygon_lib[i].is_placed).ToList();
 			}
 			polygon_lib.RemoveAll(pr => pr.is_placed);
 			for (int i = 0; i < polygon_lib.Count; i++) {
@@ -1014,15 +1026,6 @@ namespace PolyNester
 				}
 				group_bounds[group] = bound;
 			}
-			var comparer = Comparer<int>.Create((lhs, rhs) => {
-				var lhs_group = polygon_lib[lhs].group;
-				var rhs_group = polygon_lib[rhs].group;
-				var lhs_max = Math.Max(group_bounds[lhs_group].Height(), group_bounds[lhs_group].Width());
-				var rhs_max = Math.Max(group_bounds[rhs_group].Height(), group_bounds[rhs_group].Width());
-				return lhs_max == rhs_max
-					? lhs_group.CompareTo(rhs_group)
-					: lhs_max.CompareTo(rhs_max);
-			});
 			Array.Sort(handles, (lhs, rhs) => {
 				var lhs_group = polygon_lib[lhs].group;
 				var rhs_group = polygon_lib[rhs].group;
@@ -1340,10 +1343,20 @@ namespace PolyNester
 			by *= upscale;
 			HashSet<int> unique = PreprocessHandles(handles);
 			var clipper_offset = new ClipperOffset();
+			var poly_tree = new PolyTree();
 			foreach (var handle in unique) {
 				var polygon = polygon_lib[handle].original;
 				clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
-				clipper_offset.Execute(ref polygon_lib[handle].poly, by);
+				clipper_offset.Execute(ref poly_tree, by);
+				polygon = polygon_lib[handle].poly;
+				polygon.Clear();
+				var node = (PolyNode)poly_tree;
+				while (node != null) {
+					if (node.Contour.Count != 0) {
+						polygon.Add(node.Contour);
+					}
+					node = node.GetNext();
+				}
 				clipper_offset.Clear();
 			}
 		}
@@ -1352,10 +1365,17 @@ namespace PolyNester
 		{
 			by *= upscale;
 			var clipper_offset = new ClipperOffset();
-			var polygon = polygon_lib[handle].poly;
+			var polygon = polygon_lib[handle].original;
 			clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
 			clipper_offset.Execute(ref polygon_lib[handle].poly, by);
 			clipper_offset.Clear();
+		}
+
+		public void OffsetGroup(int group, double by)
+		{
+			foreach (var handle in groups[group]) {
+				Offset(handle, by);
+			}
 		}
 
 		private static bool IsPointInPolygon(IntPoint point, Ngons polygon)
@@ -1407,9 +1427,20 @@ namespace PolyNester
 				: n * n / update_breaks + 1;
 			nfps = new int[n, n];
 			var has_cached_nfps = use_nfp_cache && nfp_polygons != null;
+			var transforms = new List<Mat3x3>(n);
+			for (var i = 0; i < n; i++) {
+				transforms.Add(polygon_lib[i].trans);
+			}
 			if (has_cached_nfps) {
-				polygon_lib.AddRange(nfp_polygons);
+				foreach (var nfp in nfp_polygons) {
+					nfp.trans = Mat3x3.Eye();
+					polygon_lib.Add(nfp);
+				}
 			} else {
+				initial_transforms = new List<Mat3x3>(n);
+				for (var i = 0; i < n; i++) {
+					initial_transforms.Add(polygon_lib[i].trans);
+				}
 				for (int i = 0; i < n * n - n; i++) {
 					polygon_lib.Add(new PolyRef());
 				}
@@ -1425,17 +1456,24 @@ namespace PolyNester
 					start,
 					end,
 					i => {
-						if (i / n == i % n) {
-							nfps[i / n, i % n] = -1;
+						var (row, col) = (i / n, i % n);
+						if (row == col) {
+							nfps[row, col] = -1;
 							return;
 						}
-						var index = base_cnt + i - (i % n > i / n ? 1 : 0) - i / n;
-						nfps[i / n, i % n] = index;
+						var index = base_cnt + i - (col > row ? 1 : 0) - row;
+						nfps[row, col] = index;
 						var nfp = polygon_lib[index];
-						if (!has_cached_nfps || (int)nfp.quality < (int)GetNFPQuality(i % n, i / n, max_bound_area)) {
+						var has_same_orientation =
+							initial_transforms[row] == transforms[row]
+							&& initial_transforms[col] == transforms[col];
+						if (
+							!has_cached_nfps || !has_same_orientation
+							|| (int)nfp.quality < (int)GetNFPQuality(col, row, max_bound_area)
+						) {
 							NFPKernel(
-								i % n,
-								i / n,
+								col,
+								row,
 								max_bound_area,
 								index,
 								max_quality
