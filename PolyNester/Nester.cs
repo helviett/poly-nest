@@ -1165,12 +1165,19 @@ namespace PolyNester
 			}
 		}
 
-		public void FindOptimalRotation(IEnumerable<int> handles)
+		public void FindOptimalRotation(IEnumerable<int> handles, bool rightAgnleRotation)
 		{
 			HashSet<int> unique = PreprocessHandles(handles);
 
-			foreach (int i in unique)
-				FindOptimalRotation(i);
+			if (rightAgnleRotation) {
+				foreach (int i in unique) {
+					FindOptimalRightAngleRotation(i);
+				}
+			} else {
+				foreach (int i in unique) {
+					FindOptimalRotation(i);
+				}
+			}
 		}
 
 		private void FindOptimalRotation(int handle)
@@ -1216,6 +1223,47 @@ namespace PolyNester
 			Translate(handle, -around.X, -around.Y);
 			Rotate(handle, best_t + flip);
 			Translate(handle, around.X, around.Y);
+		}
+
+		private unsafe void FindOptimalRightAngleRotation(int handle)
+		{
+			Ngon hull = polygon_lib[handle].GetTransformedPoly()[0];
+			int n = hull.Count;
+
+			double best_angle = 0;
+			int best = 0;
+			bool flip_best = false;
+			long best_area = long.MaxValue;
+			var canvas_width = (long)(Container.X * Upscale);
+			var canvas_height = (long)(Container.Y * Upscale);
+			var infinite_container = canvas_height == 0 || canvas_width == 0;
+
+			double* angles = stackalloc double[] {
+				0.0, Math.PI * 0.5, Math.PI, Math.PI * 1.5,
+			};
+
+			for (int i = 0; i < 4; i++) {
+				var angle = angles[i];
+				Mat3x3 rot = Mat3x3.RotateCounterClockwise(angle);
+
+				Ngon clone = hull.Clone(rot);
+
+				IntRect bounds = GeomUtility.GetBounds(clone);
+				long area = bounds.Area();
+				double aspect = bounds.Aspect();
+				var width = bounds.Width();
+				var height = bounds.Height();
+
+				if (area < best_area && (infinite_container || (width <= canvas_width && height <= canvas_height))) {
+					best_area = area;
+					best = i;
+					best_angle = angle;
+					flip_best = aspect > 1.0
+						&& (infinite_container || (height <= canvas_width && width <= canvas_height));
+				}
+			}
+			double flip = flip_best ? Math.PI * 0.5 : 0;
+			Rotate(handle, best_angle);
 		}
 
 		private int InnerAddPolygon(List<List<Vector64>> polygon, int group, bool simplify = false)
