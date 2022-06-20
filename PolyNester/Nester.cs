@@ -1158,11 +1158,24 @@ namespace PolyNester
 			handles ??= Enumerable.Range(0, polygon_lib.Count);
 
 			if (rightAgnleRotation) {
-				foreach (int i in unique) {
+				foreach (int i in handles) {
 					FindOptimalRightAngleRotation(i);
 				}
 			} else {
-				foreach (int i in unique) {
+				foreach (int i in handles) {
+					FindOptimalRotation(i);
+				}
+			}
+		}
+
+		public void FindOptimalRotation(int groupHandle, bool rightAgnleRotation)
+		{
+			if (rightAgnleRotation) {
+				foreach (int i in groups[groupHandle]) {
+					FindOptimalRightAngleRotation(i);
+				}
+			} else {
+				foreach (int i in groups[groupHandle]) {
 					FindOptimalRotation(i);
 				}
 			}
