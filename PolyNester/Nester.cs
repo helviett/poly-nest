@@ -879,18 +879,6 @@ namespace PolyNester
 			polygon_lib = new List<PolyRef>();
 		}
 
-		private HashSet<int> PreprocessHandles(IEnumerable<int> handles)
-		{
-			if (handles == null)
-				handles = Enumerable.Range(0, polygon_lib.Count);
-
-			HashSet<int> unique = new HashSet<int>();
-			foreach (int i in handles)
-				unique.Add(i);
-
-			return unique;
-		}
-
 		public void Scale(int handle, double scale_x, double scale_y)
 		{
 			polygon_lib[handle].trans = Mat3x3.Scale(scale_x, scale_y) * polygon_lib[handle].trans;
@@ -908,9 +896,9 @@ namespace PolyNester
 
 		public void TranslateOriginToZero(IEnumerable<int> handles)
 		{
-			HashSet<int> unique = PreprocessHandles(handles);
+			handles ??= Enumerable.Range(0, polygon_lib.Count);
 
-			foreach (int i in unique) {
+			foreach (int i in handles) {
 				IntPoint o = polygon_lib[i].GetTransformedPoint(0, 0);
 				Translate(i, -o.X, -o.Y);
 			}
@@ -918,16 +906,16 @@ namespace PolyNester
 
 		public void Refit(Rect64 target, bool stretch, IEnumerable<int> handles)
 		{
-			HashSet<int> unique = PreprocessHandles(handles);
+			handles ??= Enumerable.Range(0, polygon_lib.Count);
 
 			HashSet<Vector64> points = new HashSet<Vector64>();
-			foreach (int i in unique)
+			foreach (int i in handles)
 				points.UnionWith(polygon_lib[i].poly[0].Select(p => polygon_lib[i].trans * new Vector64(p.X, p.Y)));
 
 			Vector64 scale, trans;
 			GeomUtility.GetRefitTransform(points, target, stretch, out scale, out trans);
 
-			foreach (int i in unique) {
+			foreach (int i in handles) {
 				Scale(i, scale.X, scale.Y);
 				Translate(i, trans.X, trans.Y);
 			}
@@ -1167,7 +1155,7 @@ namespace PolyNester
 
 		public void FindOptimalRotation(IEnumerable<int> handles, bool rightAgnleRotation)
 		{
-			HashSet<int> unique = PreprocessHandles(handles);
+			handles ??= Enumerable.Range(0, polygon_lib.Count);
 
 			if (rightAgnleRotation) {
 				foreach (int i in unique) {
@@ -1336,13 +1324,13 @@ namespace PolyNester
 
 		public int[] AddCanvasFitPolygon(IEnumerable<int> handles)
 		{
-			HashSet<int> unique = PreprocessHandles(handles);
+			handles ??= Enumerable.Range(0, polygon_lib.Count);
 
 			long w = (long)(Container.X * Upscale);
 			long h = (long)(Container.Y * Upscale);
 
 			if (w == 0 || h == 0) {
-				foreach (int i in unique) {
+				foreach (int i in handles) {
 					IntRect bds = GeomUtility.GetBounds(polygon_lib[i].GetTransformedPoly()[0]);
 					w += bds.Width();
 					h += bds.Height();
@@ -1391,10 +1379,10 @@ namespace PolyNester
 		public void Offset(IEnumerable<int> handles, double by)
 		{
 			by *= upscale;
-			HashSet<int> unique = PreprocessHandles(handles);
+			handles ??= Enumerable.Range(0, polygon_lib.Count);
 			var clipper_offset = new ClipperOffset();
 			var poly_tree = new PolyTree();
-			foreach (var handle in unique) {
+			foreach (var handle in handles) {
 				var polygon = polygon_lib[handle].original;
 				clipper_offset.AddPaths(polygon, JoinType.jtMiter, EndType.etClosedPolygon);
 				clipper_offset.Execute(ref poly_tree, by);
