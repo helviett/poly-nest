@@ -1068,19 +1068,23 @@ namespace PolyNester
 					}
 				} else if (canvas.Count == 2) {
 					c.AddPath(canvas, PolyType.ptSubject, false);
+					bool has_clip = false;
 					for (int j = 0; j < i; j++) {
 						if (!placed[j])
 							continue;
-
+						has_clip = true;
 						c.AddPaths(
-							polygon_lib[nfps[ordered_handles[i],
-							ordered_handles[j]]].GetTransformedPoly(),
+							polygon_lib[nfps[ordered_handles[i], ordered_handles[j]]].GetTransformedPoly(),
 							PolyType.ptClip,
 							true
 						);
 					}
 					var fit_region = new PolyTree();
-					c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
+					if (has_clip) {
+						c.Execute(ClipType.ctDifference, fit_region, PolyFillType.pftNonZero);
+					} else {
+						fit_region.Contour.AddRange(canvas);
+					}
 					IntRect bds = polygon_bounds[ordered_handles[i]];
 					long ext_x = bds.right - o.X;
 					long ext_y = bds.top - o.Y;
@@ -1391,6 +1395,9 @@ namespace PolyNester
 
 		public void Offset(IEnumerable<int> handles, double by)
 		{
+			if (by == 0) {
+				return;
+			}
 			by *= upscale;
 			handles ??= Enumerable.Range(0, polygon_lib.Count);
 			var clipper_offset = new ClipperOffset();
