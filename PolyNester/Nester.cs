@@ -710,8 +710,10 @@ namespace PolyNester
 				return null;
 			if (l == r && b == t)
 				return new Ngon { new IntPoint(l, t), };
-			if (l == r || b == t)
-				return new Ngon { new IntPoint(l, b), new IntPoint(r, t), };
+			if (l == r)
+				return new Ngon { new IntPoint(l, b), new IntPoint(r, t + 1), };
+			if (b == t)
+				return new Ngon { new IntPoint(l, b), new IntPoint(r + 1, t), };
 			return new Ngon() { new IntPoint(l, b), new IntPoint(r, b), new IntPoint(r, t), new IntPoint(l, t) };
 		}
 
@@ -1068,6 +1070,8 @@ namespace PolyNester
 					}
 				} else if (canvas.Count == 2) {
 					c.AddPath(canvas, PolyType.ptSubject, false);
+					var end = canvas[1];
+					end = canvas[0].X == end.X ? new IntPoint(end.X, end.Y - 1) : new IntPoint(end.X - 1, end.Y);
 					bool has_clip = false;
 					for (int j = 0; j < i; j++) {
 						if (!placed[j])
@@ -1092,6 +1096,9 @@ namespace PolyNester
 					var node = (PolyNode)fit_region;
 					while (node != null) {
 						foreach (var vertex in node.Contour) {
+							if (vertex.X > end.X || vertex.Y > end.Y) {
+								continue;
+							}
 							long cd_score = Math.Max(vertex.X + ext_x, vertex.Y + ext_y);
 							if (cd_score < pl_score) {
 								pl_score = cd_score;
