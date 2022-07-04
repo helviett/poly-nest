@@ -697,7 +697,7 @@ namespace PolyNester
 			}
 		}
 
-		public static Ngon CanFitInsidePolygon(IntRect canvas, Ngon pattern)
+		public static Ngon CanFitInsidePolygon(IntRect canvas, Ngon pattern, long upscale = 1L)
 		{
 			IntRect bds = GetBounds(pattern);
 
@@ -705,16 +705,22 @@ namespace PolyNester
 			long r = canvas.right - bds.right;
 			long t = canvas.top - bds.top;
 			long b = canvas.bottom - bds.bottom;
+			var one = 1L * upscale;
 
 			if (l > r || b > t)
 				return null;
 			if (l == r && b == t)
 				return new Ngon { new IntPoint(l, t), };
 			if (l == r)
-				return new Ngon { new IntPoint(l, b), new IntPoint(r, t + 1), };
+				return new Ngon { new IntPoint(l, b), new IntPoint(r, t + one), };
 			if (b == t)
-				return new Ngon { new IntPoint(l, b), new IntPoint(r + 1, t), };
-			return new Ngon() { new IntPoint(l, b), new IntPoint(r, b), new IntPoint(r, t), new IntPoint(l, t) };
+				return new Ngon { new IntPoint(l, b), new IntPoint(r + one, t), };
+			return new Ngon() {
+				new IntPoint(l, b),
+				new IntPoint(r + one, b),
+				new IntPoint(r + one, t + one),
+				new IntPoint(l, t + one)
+			};
 		}
 
 		public static double AlignToEdgeRotation(Ngon target, int edge_start)
@@ -999,6 +1005,7 @@ namespace PolyNester
 		/// <param name="handles"></param>
 		public void Nest(NFPQUALITY max_quality = NFPQUALITY.Full)
 		{
+			var one = 1L * Upscale;
 			var handles = Enumerable.Range(0, polygon_lib.Count).ToArray();
 			TranslateOriginToZero(handles);
 
@@ -1071,7 +1078,9 @@ namespace PolyNester
 				} else if (canvas.Count == 2) {
 					c.AddPath(canvas, PolyType.ptSubject, false);
 					var end = canvas[1];
-					end = canvas[0].X == end.X ? new IntPoint(end.X, end.Y - 1) : new IntPoint(end.X - 1, end.Y);
+					end = canvas[0].X == end.X
+						? new IntPoint(end.X, end.Y - one)
+						: new IntPoint(end.X - one, end.Y);
 					bool has_clip = false;
 					for (int j = 0; j < i; j++) {
 						if (!placed[j])
@@ -1110,6 +1119,7 @@ namespace PolyNester
 					}
 				} else {
 					// Copy-paster because filling and iterating ngons is 10-15% faster then PolyTree
+					var rt = canvas[2] - new IntPoint(one, one);
 					c.AddPath(canvas, PolyType.ptSubject, true);
 					for (int j = 0; j < i; j++) {
 						if (!placed[j])
@@ -1130,6 +1140,9 @@ namespace PolyNester
 					for (int k = 0; k < fit_region.Count; k++)
 						for (int l = 0; l < fit_region[k].Count; l++) {
 							IntPoint cand = fit_region[k][l];
+							if (cand.X > rt.X || cand.Y > rt.Y) {
+								continue;
+							}
 							long cd_score = Math.Max(cand.X + ext_x, cand.Y + ext_y);
 							if (cd_score < pl_score) {
 								pl_score = cd_score;
@@ -1335,7 +1348,7 @@ namespace PolyNester
 		{
 			Ngon B = polygon_lib[pattern_handle].GetTransformedOriginalPoly()[0];
 
-			Ngon C = GeomUtility.CanFitInsidePolygon(canvas, B) ?? new Ngon();
+			Ngon C = GeomUtility.CanFitInsidePolygon(canvas, B, Upscale) ?? new Ngon();
 			polygon_lib.Add(new PolyRef() { poly = new Ngons() { C }, trans = Mat3x3.Eye() });
 			return polygon_lib.Count - 1;
 		}
